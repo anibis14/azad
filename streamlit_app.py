@@ -1,10 +1,10 @@
-import streamlit as st
-import pandas as pd
 import requests
-from datetime import datetime
+import pandas as pd
+import streamlit as st
 import plotly.express as px
-import time
 import threading
+import time
+from datetime import datetime
 
 # Initialisation de la variable globale en haut du fichier
 last_transaction_time = datetime.min
@@ -149,14 +149,32 @@ def update_data():
         execute_arbitrage_opportunities(opportunities_df)
         time.sleep(1)  # Pause de 1 seconde entre chaque mise à jour
 
+# Fonction pour calculer l'écart maximum en pourcentage entre deux brokers
+def calculate_max_spread(symbol_df):
+    max_spread_info = {"symbol": "", "buy_broker": "", "sell_broker": "", "spread": 0}
+
+    for i, row in symbol_df.iterrows():
+        for j, other_row in symbol_df.iterrows():
+            if row['broker'] != other_row['broker']:
+                spread = (other_row['price'] - row['price']) / row['price'] * 100
+                if spread > max_spread_info["spread"]:
+                    max_spread_info = {
+                        "symbol": row['symbol'],
+                        "buy_broker": row['broker'],
+                        "sell_broker": other_row['broker'],
+                        "spread": spread
+                    }
+
+    return max_spread_info
+
 # Lancer la mise à jour des données en arrière-plan
 data_thread = threading.Thread(target=update_data)
 data_thread.start()
 
+# Interface utilisateur
 st.title('Crypto Prices and Arbitrage Dashboard')
 
-# Interface utilisateur pour les paramètres
-st.sidebar.header('Settings')
+# Paramètres de l'utilisateur
 custom_fees = st.sidebar.number_input('Transaction Fees (%)', value=custom_fees, step=0.01)
 capital_invested = st.sidebar.number_input('Capital Invested (USD)', value=capital_invested, step=1)
 time_between_ops = st.sidebar.number_input('Time Between Operations (seconds)', value=time_between_ops, step=1)
@@ -187,4 +205,3 @@ if not prices_df.empty:
 
         st.plotly_chart(fig)
         st.markdown(f"<div style='font-size: 16px; {spread_style}'>{max_spread_text}</div>", unsafe_allow_html=True)
-
