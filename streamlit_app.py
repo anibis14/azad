@@ -1,13 +1,10 @@
-import requests
+import streamlit as st
 import pandas as pd
-import dash
-from dash import dcc, html
-from dash.dependencies import Input, Output, State
+import requests
+from datetime import datetime
 import plotly.express as px
-import threading
 import time
-import io
-from datetime import datetime, timedelta
+import threading
 
 # Initialisation de la variable globale en haut du fichier
 last_transaction_time = datetime.min
@@ -81,7 +78,7 @@ def get_prices(broker):
         df['timestamp'] = datetime.now()
         return df[['symbol', 'price', 'broker', 'timestamp']]
     except Exception as e:
-        print(f"Error fetching {broker} prices: {e}")
+        st.error(f"Error fetching {broker} prices: {e}")
         return pd.DataFrame()
 
 def collect_all_prices():
@@ -124,7 +121,6 @@ def find_arbitrage_opportunities(prices_df):
 
     return pd.DataFrame(opportunities)
 
-
 # Fonction pour exécuter les transactions d'arbitrage
 def execute_arbitrage_opportunities(opportunities_df):
     global total_gain, transaction_history, last_transaction_time
@@ -140,7 +136,7 @@ def execute_arbitrage_opportunities(opportunities_df):
                 "profit": net_profit,
                 "timestamp": datetime.now()
             })
-            print(f"Executed arbitrage: Bought {opportunity['symbol']} on {opportunity['buy_broker']} and sold on {opportunity['sell_broker']} for a net profit of {net_profit:.2f} USD")
+            st.write(f"Executed arbitrage: Bought {opportunity['symbol']} on {opportunity['buy_broker']} and sold on {opportunity['sell_broker']} for a net profit of {net_profit:.2f} USD")
             last_transaction_time = current_time
 
 # Fonction pour mettre à jour les données globales
@@ -153,128 +149,42 @@ def update_data():
         execute_arbitrage_opportunities(opportunities_df)
         time.sleep(1)  # Pause de 1 seconde entre chaque mise à jour
 
-# Fonction pour calculer l'écart maximum en pourcentage entre deux brokers
-def calculate_max_spread(symbol_df):
-    max_spread_info = {"symbol": "", "buy_broker": "", "sell_broker": "", "spread": 0}
-
-    for i, row in symbol_df.iterrows():
-        for j, other_row in symbol_df.iterrows():
-            if row['broker'] != other_row['broker']:
-                spread = (other_row['price'] - row['price']) / row['price'] * 100
-                if spread > max_spread_info["spread"]:
-                    max_spread_info = {
-                        "symbol": row['symbol'],
-                        "buy_broker": row['broker'],
-                        "sell_broker": other_row['broker'],
-                        "spread": spread
-                    }
-
-    return max_spread_info
-
-# Création du dashboard avec Dash
-def create_dashboard():
-    app = dash.Dash(__name__)
-
-    app.layout = html.Div(children=[
-        html.H1(children='Crypto Prices and Arbitrage Dashboard'),
-
-        html.Div([
-            html.Div([
-                html.Label('Transaction Fees (%)'),
-                dcc.Input(id='fees-input', type='number', value=custom_fees, step=0.01, style={'width': '100%'})
-            ], style={'padding': '5px'}),
-            html.Div([
-                html.Label('Capital Invested (USD)'),
-                dcc.Input(id='capital-input', type='number', value=capital_invested, step=1, style={'width': '100%'})
-            ], style={'padding': '5px'}),
-            html.Div([
-                html.Label('Time Between Operations (seconds)'),
-                dcc.Input(id='time-input', type='number', value=time_between_ops, step=1, style={'width': '100%'})
-            ], style={'padding': '5px'}),
-            html.Div([
-                html.Label('Minimum Spread (%)'),
-                dcc.Input(id='spread-input', type='number', value=min_spread_percent, step=0.01, style={'width': '100%'})
-            ], style={'padding': '5px'}),
-            html.Button('Update Parameters', id='update-button', n_clicks=0, style={'marginTop': '10px'}),
-            html.Div(id='update-notification', style={'marginTop': '10px', 'color': 'green'})
-        ], style={'position': 'relative', 'top': '20px', 'left': '10px', 'width': '300px', 'padding': '10px', 'border': '1px solid #ccc', 'backgroundColor': '#f9f9f9'}),
-
-        dcc.Interval(
-            id='interval-component',
-            interval=1*1000,  # in milliseconds (1 second)
-            n_intervals=0
-        ),
-
-        html.Div(id='total-gain', style={'position': 'absolute', 'top': '10px', 'right': '10px', 'fontSize': 24, 'marginBottom': 20}),
-
-        html.Div(id='graphs-container'),
-
-        html.Div(children=[
-            html.H2("Historique des Transactions"),
-            html.Div(id='transaction-history')
-        ])
-    ])
-
-    @app.callback(
-        [Output('total-gain', 'children'), Output('transaction-history', 'children')],
-        [Input('interval-component', 'n_intervals')]
-    )
-    def update_total_gain_and_history(n):
-        global total_gain, transaction_history
-        transactions = [html.Div([
-            html.P(f"{tx['timestamp']} - Bought {tx['symbol']} on {tx['buy_broker']} and sold on {tx['sell_broker']} for a net profit of {tx['profit']} USD")
-        ]) for tx in transaction_history]
-        return html.H2(f'Total Net Gain: {total_gain:.2f} USD', style={'color': 'green' if total_gain > 0 else 'red'}), transactions
-
-    @app.callback(
-        Output('graphs-container', 'children'),
-        [Input('interval-component', 'n_intervals')]
-    )
-    def update_graphs(n):
-        global prices_df
-        graphs = []
-        for symbol in prices_df['symbol'].unique():
-            symbol_df = prices_df[prices_df['symbol'] == symbol]
-            fig = px.line(symbol_df, x='timestamp', y='price', color='broker', title=f"Prices for {symbol}")
-
-            # Calculer l'écart maximum en pourcentage pour ce symbole
-            max_spread_info = calculate_max_spread(symbol_df)
-            spread_style = {'fontSize': 16}
-            if max_spread_info['spread'] >= 0.6:
-                spread_style.update({'color': 'green', 'fontWeight': 'bold'})
-            max_spread_text = f"Max Spread: {max_spread_info['spread']:.2f}% (Buy on {max_spread_info['buy_broker']}, Sell on {max_spread_info['sell_broker']})"
-
-            graphs.append(html.Div([
-                html.H2(f"{symbol} Prices"),
-                dcc.Graph(figure=fig),
-                html.Div(max_spread_text, style=spread_style)
-            ], style={'position': 'relative', 'display': 'inline-block', 'width': '45%', 'verticalAlign': 'top', 'margin': '10px'}))
-        return graphs
-
-    @app.callback(
-        [Output('update-button', 'n_clicks'), Output('update-notification', 'children')],
-        [Input('update-button', 'n_clicks')],
-        [State('fees-input', 'value'),
-         State('capital-input', 'value'),
-         State('time-input', 'value'),
-         State('spread-input', 'value')]
-    )
-    def update_parameters(n_clicks, fees, capital, time, spread):
-        global custom_fees, capital_invested, time_between_ops, min_spread_percent
-        custom_fees = fees
-        capital_invested = capital
-        time_between_ops = time
-        min_spread_percent = spread
-        return 0, f'Parameters updated: Fees = {fees}%, Capital = {capital} USD, Time = {time} seconds, Spread = {spread}%'
-
-    return app
-
-# Démarrer la mise à jour des données en arrière-plan
+# Lancer la mise à jour des données en arrière-plan
 data_thread = threading.Thread(target=update_data)
 data_thread.start()
 
-# Lancer le serveur Dash
-if __name__ == '__main__':
-    prices_df = collect_all_prices()
-    app = create_dashboard()
-    app.run_server(debug=True)
+st.title('Crypto Prices and Arbitrage Dashboard')
+
+# Interface utilisateur pour les paramètres
+st.sidebar.header('Settings')
+custom_fees = st.sidebar.number_input('Transaction Fees (%)', value=custom_fees, step=0.01)
+capital_invested = st.sidebar.number_input('Capital Invested (USD)', value=capital_invested, step=1)
+time_between_ops = st.sidebar.number_input('Time Between Operations (seconds)', value=time_between_ops, step=1)
+min_spread_percent = st.sidebar.number_input('Minimum Spread (%)', value=min_spread_percent, step=0.01)
+
+# Affichage des gains totaux
+st.header('Total Net Gain')
+st.subheader(f'{total_gain:.2f} USD')
+
+# Affichage des transactions
+st.header('Transaction History')
+for tx in transaction_history:
+    st.write(f"{tx['timestamp']} - Bought {tx['symbol']} on {tx['buy_broker']} and sold on {tx['sell_broker']} for a net profit of {tx['profit']} USD")
+
+# Affichage des graphiques
+st.header('Price Graphs')
+if not prices_df.empty:
+    for symbol in prices_df['symbol'].unique():
+        symbol_df = prices_df[prices_df['symbol'] == symbol]
+        fig = px.line(symbol_df, x='timestamp', y='price', color='broker', title=f"Prices for {symbol}")
+
+        # Calculer l'écart maximum en pourcentage pour ce symbole
+        max_spread_info = calculate_max_spread(symbol_df)
+        spread_style = {'fontSize': 16}
+        if max_spread_info['spread'] >= 0.6:
+            spread_style.update({'color': 'green', 'fontWeight': 'bold'})
+        max_spread_text = f"Max Spread: {max_spread_info['spread']:.2f}% (Buy on {max_spread_info['buy_broker']}, Sell on {max_spread_info['sell_broker']})"
+
+        st.plotly_chart(fig)
+        st.markdown(f"<div style='font-size: 16px; {spread_style}'>{max_spread_text}</div>", unsafe_allow_html=True)
+
