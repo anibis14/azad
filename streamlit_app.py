@@ -1,3 +1,4 @@
+import os
 import requests
 import pandas as pd
 import dash
@@ -8,7 +9,11 @@ import threading
 import time
 import io
 from datetime import datetime, timedelta
-import os
+
+# Configuration des logs
+import logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Initialisation de la variable globale en haut du fichier
 last_transaction_time = datetime.min
@@ -43,6 +48,7 @@ min_spread_percent = 0.4
 # Collecte des données de prix depuis les APIs des brokers
 def get_prices(broker):
     try:
+        logger.info(f"Fetching prices for broker: {broker}")
         if broker == "Binance":
             response = requests.get(APIS["Binance"])
             data = response.json()
@@ -82,12 +88,13 @@ def get_prices(broker):
         df['timestamp'] = datetime.now()
         return df[['symbol', 'price', 'broker', 'timestamp']]
     except Exception as e:
-        print(f"Error fetching {broker} prices: {e}")
+        logger.error(f"Error fetching {broker} prices: {e}")
         return pd.DataFrame()
 
 def collect_all_prices():
     brokers = ["Binance", "Coinbase", "Bitfinex", "Bittrex", "Huobi"]
     prices = pd.concat([get_prices(broker) for broker in brokers], ignore_index=True)
+    logger.info(f"Collected prices for all brokers")
     return prices
 
 def find_arbitrage_opportunities(prices_df):
@@ -123,8 +130,8 @@ def find_arbitrage_opportunities(prices_df):
                             "timestamp": datetime.now()
                         })
 
+    logger.info(f"Found {len(opportunities)} arbitrage opportunities")
     return pd.DataFrame(opportunities)
-
 
 # Fonction pour exécuter les transactions d'arbitrage
 def execute_arbitrage_opportunities(opportunities_df):
@@ -141,7 +148,7 @@ def execute_arbitrage_opportunities(opportunities_df):
                 "profit": net_profit,
                 "timestamp": datetime.now()
             })
-            print(f"Executed arbitrage: Bought {opportunity['symbol']} on {opportunity['buy_broker']} and sold on {opportunity['sell_broker']} for a net profit of {net_profit:.2f} USD")
+            logger.info(f"Executed arbitrage: Bought {opportunity['symbol']} on {opportunity['buy_broker']} and sold on {opportunity['sell_broker']} for a net profit of {net_profit:.2f} USD")
             last_transaction_time = current_time
 
 # Fonction pour mettre à jour les données globales
@@ -266,6 +273,7 @@ def create_dashboard():
         capital_invested = capital
         time_between_ops = time
         min_spread_percent = spread
+        logger.info(f'Parameters updated: Fees = {fees}%, Capital = {capital} USD, Time = {time} seconds, Spread = {spread}%')
         return 0, f'Parameters updated: Fees = {fees}%, Capital = {capital} USD, Time = {time} seconds, Spread = {spread}%'
 
     return app
@@ -275,8 +283,9 @@ data_thread = threading.Thread(target=update_data)
 data_thread.start()
 
 # Lancer le serveur Dash
-app = create_dashboard()
-
 if __name__ == '__main__':
+    prices_df = collect_all_prices()
+    app = create_dashboard()
+    server = app.server
     port = int(os.environ.get('PORT', 8050))
     app.run_server(debug=False, host='0.0.0.0', port=port)
