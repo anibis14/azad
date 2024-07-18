@@ -69,27 +69,39 @@ def get_prices(broker):
             data = []
             for symbol in symbols:
                 response = requests.get(APIS["Bitfinex"] + symbol)
-                price = float(response.json()[6])
-                data.append({"symbol": symbol[1:], "price": price})
+                if response.status_code == 200 and len(response.json()) > 6:
+                    price = float(response.json()[6])
+                    data.append({"symbol": symbol[1:], "price": price})
+                else:
+                    logger.error(f"Bitfinex response error: {response.json()}")
             df = pd.DataFrame(data)
         elif broker == "Bittrex":
             response = requests.get(APIS["Bittrex"])
-            data = pd.read_json(io.StringIO(response.content.decode('utf-8-sig')))
-            df = data[data['symbol'].isin(['BTC-USD', 'ETH-USD', 'LTC-USD', 'XRP-USD', 'BCH-USD'])]
-            df['symbol'] = df['symbol'].str.replace('-', '')
+            if response.headers.get('Content-Type') == 'application/json':
+                data = pd.read_json(io.StringIO(response.content.decode('utf-8-sig')))
+                df = data[data['symbol'].isin(['BTC-USD', 'ETH-USD', 'LTC-USD', 'XRP-USD', 'BCH-USD'])]
+                df['symbol'] = df['symbol'].str.replace('-', '')
+            else:
+                logger.error(f"Bittrex response error: {response.content}")
+                return pd.DataFrame()
         elif broker == "Huobi":
             response = requests.get(APIS["Huobi"])
             data = response.json()
-            df = pd.DataFrame(data['data'])
-            df = df[df['symbol'].isin(['btcusdt', 'ethusdt', 'ltcusdt', 'xrpusdt', 'bchusdt'])]
-            df['symbol'] = df['symbol'].str.replace('usdt', 'usd').str.upper()
-            df['price'] = df['close'].astype(float)
+            if 'data' in data:
+                df = pd.DataFrame(data['data'])
+                df = df[df['symbol'].isin(['btcusdt', 'ethusdt', 'ltcusdt', 'xrpusdt', 'bchusdt'])]
+                df['symbol'] = df['symbol'].str.replace('usdt', 'usd').str.upper()
+                df['price'] = df['close'].astype(float)
+            else:
+                logger.error(f"Huobi response error: {data}")
+                return pd.DataFrame()
         df['broker'] = broker
         df['timestamp'] = datetime.now()
         return df[['symbol', 'price', 'broker', 'timestamp']]
     except Exception as e:
         logger.error(f"Error fetching {broker} prices: {e}")
         return pd.DataFrame()
+
 
 def collect_all_prices():
     brokers = ["Binance", "Coinbase", "Bitfinex", "Bittrex", "Huobi"]
@@ -289,3 +301,4 @@ if __name__ == '__main__':
     server = app.server
     port = int(os.environ.get('PORT', 8050))
     app.run_server(debug=False, host='0.0.0.0', port=port)
+
