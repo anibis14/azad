@@ -1,4 +1,3 @@
-import os
 import requests
 import pandas as pd
 import dash
@@ -9,6 +8,7 @@ import threading
 import time
 import io
 from datetime import datetime, timedelta
+import os
 
 # Initialisation de la variable globale en haut du fichier
 last_transaction_time = datetime.min
@@ -275,9 +275,8 @@ data_thread = threading.Thread(target=update_data)
 data_thread.start()
 
 # Lancer le serveur Dash
+app = create_dashboard()
+
 if __name__ == '__main__':
-    import os
-    prices_df = collect_all_prices()
-    app = create_dashboard()
     port = int(os.environ.get('PORT', 8050))
     app.run_server(debug=False, host='0.0.0.0', port=port)
